@@ -1,0 +1,1720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Media Explorer - Live Feed</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.98/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.98/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #cesiumContainer {
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* Hide Cesium's default UI elements */
+        .cesium-viewer-toolbar,
+        .cesium-viewer-animationContainer,
+        .cesium-viewer-timelineContainer,
+        .cesium-viewer-fullscreenContainer,
+        .cesium-viewer-vrContainer,
+        .cesium-viewer-bottom {
+            display: none !important;
+        }
+
+        .cesium-credit-logoContainer {
+            display: none !important;
+        }
+
+        /* Radio Garden style fixed center circle */
+        .center-target {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 120px;
+            height: 120px;
+            border: 3px solid #00ff88;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10000;
+            transform: translate(-50%, -50%);
+            box-shadow: 
+                0 0 30px #00ff88,
+                inset 0 0 30px rgba(0, 255, 136, 0.2);
+            animation: pulse-center 3s infinite;
+        }
+
+        .center-target::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            background: #00ff88;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px #00ff88;
+        }
+
+        .center-target.active {
+            border-color: #ff0088;
+            box-shadow: 
+                0 0 40px #ff0088,
+                inset 0 0 40px rgba(255, 0, 136, 0.2);
+            width: 160px;
+            height: 160px;
+        }
+
+        .center-target.active::before {
+            background: #ff0088;
+            box-shadow: 0 0 15px #ff0088;
+        }
+
+        @keyframes pulse-center {
+            0%, 100% { 
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.8;
+            }
+            50% { 
+                transform: translate(-50%, -50%) scale(1.05);
+                opacity: 1;
+            }
+        }
+
+        /* Preview bubble that appears when circle hovers over media point */
+        .preview-bubble {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            background: rgba(0, 0, 0, 0.95);
+            border-radius: 15px;
+            padding: 15px 20px;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -220px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(15px);
+            border: 2px solid #00ff88;
+            min-width: 250px;
+            text-align: center;
+        }
+
+        .preview-bubble.active {
+            opacity: 1;
+            transform: translate(-50%, -220px) scale(1);
+        }
+
+        .preview-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .preview-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .preview-subtitle {
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* Radio station list overlay (right side) */
+        .radio-overlay {
+            position: fixed;
+            top: 50%;
+            right: 20px;
+            width: 380px;
+            max-height: 70vh;
+            background: rgba(0, 0, 0, 0.95);
+            border-radius: 15px;
+            border: 2px solid #00ff88;
+            padding: 20px;
+            z-index: 100;
+            transform: translateY(-50%) translateX(100%);
+            opacity: 0;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(15px);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .radio-overlay.active {
+            opacity: 1;
+            transform: translateY(-50%) translateX(0);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.3);
+        }
+
+        .radio-overlay::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .radio-overlay::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .radio-overlay::-webkit-scrollbar-thumb {
+            background: #00ff88;
+            border-radius: 4px;
+        }
+
+        .location-header {
+            text-align: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        .close-overlay {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            border-radius: 50%;
+            color: #fff;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-overlay:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        .location-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 5px;
+        }
+
+        .station-count {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .radio-station {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .radio-station:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: #00ff88;
+            transform: translateX(-5px);
+        }
+
+        .radio-station.playing {
+            background: rgba(0, 255, 136, 0.2);
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .radio-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #00ff88, #00cc66);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .radio-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .radio-name {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .radio-location {
+            font-size: 12px;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .play-indicator {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .radio-station.playing .play-indicator {
+            opacity: 1;
+            animation: pulse-play 1.5s infinite;
+        }
+
+        @keyframes pulse-play {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        /* Audio player */
+        #audioPlayer {
+            display: none;
+        }
+
+        /* Control panel */
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(20, 20, 20, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            min-width: 280px;
+            z-index: 1;
+            opacity: 0;
+            animation: fade-in-controls 1s ease-out 2s both;
+        }
+
+        @keyframes fade-in-controls {
+            0% {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .controls h3 {
+            margin-bottom: 15px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #888;
+        }
+
+        .platform-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 12px 15px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: bold;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .platform-btn input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            cursor: pointer;
+            accent-color: var(--platform-color);
+        }
+
+        .platform-btn.active { 
+            background: linear-gradient(135deg, var(--platform-color), var(--platform-color-dark));
+            border-color: var(--platform-color);
+            box-shadow: 0 0 20px var(--platform-glow);
+        }
+
+        .platform-btn.radio.active { 
+            --platform-color: #00ff88;
+            --platform-color-dark: #00cc66;
+            --platform-glow: rgba(0, 255, 136, 0.5);
+        }
+
+        .platform-btn.tv.active { 
+            --platform-color: #ff6b6b;
+            --platform-color-dark: #ff5252;
+            --platform-glow: rgba(255, 107, 107, 0.5);
+        }
+
+        .platform-btn.youtube.active { 
+            --platform-color: #ff0000;
+            --platform-color-dark: #cc0000;
+            --platform-glow: rgba(255, 0, 0, 0.5);
+        }
+
+        .platform-btn.instagram.active { 
+            --platform-color: #e1306c;
+            --platform-color-dark: #c13584;
+            --platform-glow: rgba(225, 48, 108, 0.5);
+        }
+
+        .platform-btn.telegram.active { 
+            --platform-color: #0088cc;
+            --platform-color-dark: #0066aa;
+            --platform-glow: rgba(0, 136, 204, 0.5);
+        }
+
+        .platform-btn.snapchat.active { 
+            --platform-color: #fffc00;
+            --platform-color-dark: #e6e300;
+            --platform-glow: rgba(255, 252, 0, 0.5);
+        }
+
+        .platform-btn.vk.active { 
+            --platform-color: #4a76a8;
+            --platform-color-dark: #3d6490;
+            --platform-glow: rgba(74, 118, 168, 0.5);
+        }
+
+        .platform-btn.facebook.active { 
+            --platform-color: #1877f2;
+            --platform-color-dark: #0e5fda;
+            --platform-glow: rgba(24, 119, 242, 0.5);
+        }
+
+        .platform-btn.tiktok.active { 
+            --platform-color: #ff007f;
+            --platform-color-dark: #e60066;
+            --platform-glow: rgba(255, 0, 127, 0.5);
+        }
+
+        .borders-toggle {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-btn {
+            display: block;
+            width: 100%;
+            padding: 8px 12px;
+            margin: 3px 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            font-size: 12px;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-btn.active {
+            background: rgba(34, 197, 94, 0.3);
+            border-color: #22c55e;
+        }
+
+        /* Loading screen */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            flex-direction: column;
+            gap: 20px;
+            opacity: 1;
+            transition: opacity 1.5s ease-out;
+        }
+
+        .loading-screen.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-screen h2 {
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            animation: pulse-text 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-text {
+            0%, 100% {
+                opacity: 0.7;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.02);
+            }
+        }
+
+        /* API Status indicator */
+        .api-status {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(20, 20, 20, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+            opacity: 0;
+            animation: fade-in-stats 1s ease-out 4s both;
+        }
+
+        @keyframes fade-in-stats {
+            0% {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .api-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            gap: 20px;
+        }
+
+        .api-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.online { background: #22c55e; }
+        .status-dot.offline { background: #ef4444; }
+        .status-dot.limited { background: #f59e0b; }
+        .status-dot.loading { 
+            background: #f59e0b; 
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Instructions overlay */
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.9);
+            padding: 15px 25px;
+            border-radius: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 14px;
+            color: #888;
+            text-align: center;
+            opacity: 0;
+            animation: fade-in-instructions 1s ease-out 5s both;
+        }
+
+        @keyframes fade-in-instructions {
+            0% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        /* Audio Player Controls */
+        .audio-controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.95);
+            border-radius: 30px;
+            padding: 15px 25px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .audio-controls.active {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .audio-controls button {
+            background: none;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            font-size: 20px;
+            padding: 8px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .audio-controls button:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .audio-controls .play-pause-btn {
+            background: #00ff88;
+            color: #000;
+            font-size: 24px;
+        }
+
+        .audio-controls .play-pause-btn:hover {
+            background: #00cc66;
+            transform: scale(1.1);
+        }
+
+        .station-info {
+            flex: 1;
+            min-width: 200px;
+            max-width: 300px;
+        }
+
+        .station-name {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .station-location {
+            font-size: 12px;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .volume-slider {
+            width: 100px;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            background: #00ff88;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .volume-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            background: #00ff88;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Radio Garden style fixed center target -->
+    <div class="center-target" id="centerTarget"></div>
+    
+    <!-- Preview bubble for hovering media -->
+    <div class="preview-bubble" id="previewBubble">
+        <div class="preview-icon" id="previewIcon">📻</div>
+        <div class="preview-title" id="previewTitle">Station Name</div>
+        <div class="preview-subtitle" id="previewSubtitle">Location</div>
+    </div>
+
+    <!-- Radio station list (right side) -->
+    <div class="radio-overlay" id="radioOverlay">
+        <div class="location-header">
+            <button class="close-overlay" onclick="closeRadioOverlay()">×</button>
+            <div class="location-name" id="locationName">Select a location</div>
+            <div class="station-count" id="stationCount">Click on radio stations to explore</div>
+        </div>
+        <div id="radioStations">
+            <!-- Radio stations will be populated here -->
+        </div>
+    </div>
+
+    <!-- Audio Player Controls -->
+    <div class="audio-controls" id="audioControls">
+        <button class="prev-btn" onclick="previousStation()" title="Previous station">⏮️</button>
+        <button class="play-pause-btn" id="playPauseBtn" onclick="togglePlayPause()" title="Play/Pause">▶️</button>
+        <button class="next-btn" onclick="nextStation()" title="Next station">⏭️</button>
+        <div class="station-info">
+            <div class="station-name" id="stationName">No station selected</div>
+            <div class="station-location" id="stationLocation">Click on a radio station</div>
+        </div>
+        <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="70" onchange="setVolume(this.value)">
+        <button class="stop-btn" onclick="stopRadio()" title="Stop">⏹️</button>
+    </div>
+
+    <!-- Audio player -->
+    <audio id="audioPlayer" preload="none" crossorigin="anonymous"></audio>
+
+    <div class="loading-screen" id="loadingScreen">
+        <h2>CONNECTING TO GLOBAL MEDIA</h2>
+        <p style="color: #666;">Loading worldwide media sources...</p>
+    </div>
+
+    <div id="cesiumContainer"></div>
+
+    <!-- Instructions -->
+    <div class="instructions">
+        🌍 Rotate globe to explore • 📍 Click dots to view media • 🎯 Center circle shows preview
+    </div>
+
+    <!-- API Status -->
+    <div class="api-status" id="apiStatus">
+        <div class="api-item">
+            <span>📡 Media Sources:</span>
+            <span><span class="status-dot loading" id="radioStatus"></span> <span id="radioStatusText">Connecting...</span></span>
+        </div>
+        <div class="api-item">
+            <span>🌍 Sources loaded:</span>
+            <span id="stationsLoaded">0</span>
+        </div>
+        <div class="api-item">
+            <span>📍 Cities available:</span>
+            <span id="citiesLoaded">0</span>
+        </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="controls">
+        <h3>MEDIA PLATFORMS</h3>
+        <label class="platform-btn radio" data-platform="radio">
+            <input type="checkbox" checked onchange="togglePlatform('radio', this.checked)">
+            <span>📻 Radio Garden</span>
+        </label>
+        <label class="platform-btn tv" data-platform="tv">
+            <input type="checkbox" onchange="togglePlatform('tv', this.checked)">
+            <span>📺 Television</span>
+        </label>
+        <label class="platform-btn youtube" data-platform="youtube">
+            <input type="checkbox" onchange="togglePlatform('youtube', this.checked)">
+            <span>▶️ YouTube</span>
+        </label>
+        <label class="platform-btn instagram" data-platform="instagram">
+            <input type="checkbox" onchange="togglePlatform('instagram', this.checked)">
+            <span>📷 Instagram</span>
+        </label>
+        <label class="platform-btn telegram" data-platform="telegram">
+            <input type="checkbox" onchange="togglePlatform('telegram', this.checked)">
+            <span>✈️ Telegram</span>
+        </label>
+        <label class="platform-btn snapchat" data-platform="snapchat">
+            <input type="checkbox" onchange="togglePlatform('snapchat', this.checked)">
+            <span>👻 Snapchat</span>
+        </label>
+        <label class="platform-btn vk" data-platform="vk">
+            <input type="checkbox" onchange="togglePlatform('vk', this.checked)">
+            <span>🇷🇺 VK</span>
+        </label>
+        <label class="platform-btn facebook" data-platform="facebook">
+            <input type="checkbox" onchange="togglePlatform('facebook', this.checked)">
+            <span>👤 Facebook</span>
+        </label>
+        <label class="platform-btn tiktok" data-platform="tiktok">
+            <input type="checkbox" onchange="togglePlatform('tiktok', this.checked)">
+            <span>🎵 TikTok</span>
+        </label>
+        
+        <div class="borders-toggle">
+            <h3>MAP LAYERS</h3>
+            <button class="toggle-btn active" id="countryBordersBtn">🌍 Country Borders</button>
+            <button class="toggle-btn" id="stateBordersBtn">🗺️ US State Borders</button>
+        </div>
+    </div>
+
+    <script>
+        // Set Cesium Ion access token
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkNjRlOTljNi00ODQ1LTQxZDYtODIwMC01ZTJkMjQwYzdjN2QiLCJpZCI6MzE5ODE4LCJpYXQiOjE3NTIwNDA1Nzl9.DskqzfOuG7LLyrd3196kPBYTrbJ_R8Qdj6jNubBkHEE';
+
+        let viewer;
+        let countryBordersDataSource = null;
+        let stateBordersDataSource = null;
+        let mediaDataSources = {};
+        let radioDataSource = null;
+        let radioPlaces = [];
+        let mediaPlaces = {};
+        let currentPlayingStation = null;
+        let audioPlayer = null;
+        let currentHoveredPlace = null;
+        let activePlatforms = new Set(['radio']);
+        let radioOverlayOpenedByClick = false;
+
+        // Platform configurations
+        const platformConfig = {
+            radio: { 
+                color: Cesium.Color.fromCssColorString('#00ff88'), 
+                icon: '📻', 
+                name: 'Radio Garden',
+                borderColor: '#00ff88'
+            },
+            tv: { 
+                color: Cesium.Color.fromCssColorString('#ff6b6b'), 
+                icon: '📺', 
+                name: 'Television',
+                borderColor: '#ff6b6b'
+            },
+            youtube: { 
+                color: Cesium.Color.fromCssColorString('#ff0000'), 
+                icon: '▶️', 
+                name: 'YouTube',
+                borderColor: '#ff0000'
+            },
+            instagram: { 
+                color: Cesium.Color.fromCssColorString('#e1306c'), 
+                icon: '📷', 
+                name: 'Instagram',
+                borderColor: '#e1306c'
+            },
+            telegram: { 
+                color: Cesium.Color.fromCssColorString('#0088cc'), 
+                icon: '✈️', 
+                name: 'Telegram',
+                borderColor: '#0088cc'
+            },
+            snapchat: { 
+                color: Cesium.Color.fromCssColorString('#fffc00'), 
+                icon: '👻', 
+                name: 'Snapchat',
+                borderColor: '#fffc00'
+            },
+            vk: { 
+                color: Cesium.Color.fromCssColorString('#4a76a8'), 
+                icon: '🇷🇺', 
+                name: 'VK',
+                borderColor: '#4a76a8'
+            },
+            facebook: { 
+                color: Cesium.Color.fromCssColorString('#1877f2'), 
+                icon: '👤', 
+                name: 'Facebook',
+                borderColor: '#1877f2'
+            },
+            tiktok: { 
+                color: Cesium.Color.fromCssColorString('#ff007f'), 
+                icon: '🎵', 
+                name: 'TikTok',
+                borderColor: '#ff007f'
+            }
+        };
+
+        // Toggle platform visibility
+        window.togglePlatform = function(platform, isActive) {
+            const btn = document.querySelector(`.platform-btn.${platform}`);
+            if (isActive) {
+                activePlatforms.add(platform);
+                btn.classList.add('active');
+            } else {
+                activePlatforms.delete(platform);
+                btn.classList.remove('active');
+            }
+            
+            // Show/hide media sources for this platform
+            if (mediaDataSources[platform]) {
+                mediaDataSources[platform].show = isActive;
+            }
+        };
+
+        try {
+            // Initialize Cesium viewer
+            viewer = new Cesium.Viewer('cesiumContainer', {
+                baseLayerPicker: false,
+                geocoder: false,
+                homeButton: false,
+                sceneModePicker: false,
+                navigationHelpButton: false,
+                animation: false,
+                timeline: false,
+                fullscreenButton: false,
+                vrButton: false,
+                creditContainer: document.createElement('div')
+            });
+
+            console.log('Cesium viewer created successfully');
+
+            // Initialize audio player
+            audioPlayer = document.getElementById('audioPlayer');
+
+            // Enable lighting and set dark theme
+            viewer.scene.globe.enableLighting = true;
+            viewer.scene.backgroundColor = Cesium.Color.BLACK;
+            viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a1a1a');
+            
+            // Set initial camera position
+            viewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(0, 20, 15000000)
+            });
+            
+            // Add terrain
+            viewer.terrainProvider = Cesium.createWorldTerrain();
+
+            // Setup center targeting system
+            setupCenterTargeting();
+
+            // Load country borders
+            async function loadCountryBorders() {
+                try {
+                    countryBordersDataSource = await Cesium.GeoJsonDataSource.load(
+                        'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson',
+                        { clampToGround: true }
+                    );
+                    
+                    countryBordersDataSource.entities.values.forEach(entity => {
+                        if (entity.polygon) {
+                            entity.polygon.material = Cesium.Color.TRANSPARENT;
+                            entity.polygon.outline = true;
+                            entity.polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.3);
+                            entity.polygon.outlineWidth = 1;
+                            entity.polygon.height = 0;
+                        }
+                    });
+                    
+                    viewer.dataSources.add(countryBordersDataSource);
+                    console.log('✅ Country borders loaded');
+                } catch (error) {
+                    console.warn('Failed to load country borders:', error);
+                }
+            }
+
+            // Setup center targeting system like Radio Garden
+            function setupCenterTargeting() {
+                const centerTarget = document.getElementById('centerTarget');
+                const previewBubble = document.getElementById('previewBubble');
+
+                // Check center area when camera moves
+                viewer.scene.camera.moveEnd.addEventListener(() => {
+                    checkCenterArea();
+                });
+
+                // Also check periodically
+                setInterval(checkCenterArea, 100);
+            }
+
+            // Check what media sources are in the center of the screen
+            function checkCenterArea() {
+                const centerTarget = document.getElementById('centerTarget');
+                const previewBubble = document.getElementById('previewBubble');
+                
+                // Get center position
+                const canvas = viewer.scene.canvas;
+                const centerX = canvas.clientWidth / 2;
+                const centerY = canvas.clientHeight / 2;
+
+                const pickedPosition = viewer.camera.pickEllipsoid(
+                    new Cesium.Cartesian2(centerX, centerY),
+                    viewer.scene.globe.ellipsoid
+                );
+
+                if (!pickedPosition) return;
+
+                const cartographic = Cesium.Cartographic.fromCartesian(pickedPosition);
+                const longitude = Cesium.Math.toDegrees(cartographic.longitude);
+                const latitude = Cesium.Math.toDegrees(cartographic.latitude);
+
+                // Find nearby radio stations (individual dots)
+                const cameraHeight = viewer.camera.positionCartographic.height;
+                const searchRadius = Math.min(cameraHeight / 100000, 5); // Smaller radius for individual stations
+                
+                let nearestStation = null;
+                let nearestDistance = Infinity;
+                let nearestPlatform = null;
+                
+                // Check radio stations
+                if (activePlatforms.has('radio') && radioDataSource) {
+                    radioDataSource.entities.values.forEach(entity => {
+                        if (!entity.position || !entity.properties) return;
+                        
+                        const props = entity.properties.getValue();
+                        if (!props.isStation) return;
+                        
+                        const position = entity.position.getValue();
+                        const cartographic = Cesium.Cartographic.fromCartesian(position);
+                        const entityLon = Cesium.Math.toDegrees(cartographic.longitude);
+                        const entityLat = Cesium.Math.toDegrees(cartographic.latitude);
+                        
+                        const distance = Math.sqrt(
+                            Math.pow(entityLat - latitude, 2) + 
+                            Math.pow(entityLon - longitude, 2)
+                        );
+                        
+                        if (distance < searchRadius && distance < nearestDistance) {
+                            nearestDistance = distance;
+                            nearestStation = props;
+                            nearestPlatform = 'radio';
+                        }
+                    });
+                }
+                
+                // Check other platforms (city-level dots)
+                activePlatforms.forEach(platform => {
+                    if (platform === 'radio' || !mediaPlaces[platform]) return;
+                    
+                    mediaPlaces[platform].forEach(place => {
+                        const distance = Math.sqrt(
+                            Math.pow(place.geo[1] - latitude, 2) + 
+                            Math.pow(place.geo[0] - longitude, 2)
+                        );
+                        
+                        if (distance < searchRadius && distance < nearestDistance) {
+                            nearestDistance = distance;
+                            nearestStation = place;
+                            nearestPlatform = platform;
+                        }
+                    });
+                });
+
+                if (nearestStation && nearestPlatform) {
+                    centerTarget.classList.add('active');
+                    centerTarget.style.borderColor = platformConfig[nearestPlatform].borderColor;
+                    centerTarget.style.boxShadow = `0 0 40px ${platformConfig[nearestPlatform].borderColor}, inset 0 0 40px ${platformConfig[nearestPlatform].borderColor}33`;
+                    
+                    // Show appropriate preview
+                    if (nearestStation.isStation) {
+                        showStationPreview(nearestStation);
+                        currentHoveredPlace = { station: nearestStation.station, place: nearestStation, platform: nearestPlatform };
+                    } else {
+                        showPreview(nearestStation, nearestPlatform);
+                        currentHoveredPlace = { place: nearestStation, platform: nearestPlatform };
+                    }
+                } else {
+                    centerTarget.classList.remove('active');
+                    centerTarget.style.borderColor = '#00ff88';
+                    centerTarget.style.boxShadow = '0 0 30px #00ff88, inset 0 0 30px rgba(0, 255, 136, 0.2)';
+                    
+                    previewBubble.classList.remove('active');
+                    currentHoveredPlace = null;
+                }
+            }
+
+            // Show preview bubble
+            function showPreview(place, platform) {
+                const previewBubble = document.getElementById('previewBubble');
+                const previewIcon = document.getElementById('previewIcon');
+                const previewTitle = document.getElementById('previewTitle');
+                const previewSubtitle = document.getElementById('previewSubtitle');
+                
+                const config = platformConfig[platform];
+                
+                previewIcon.textContent = config.icon;
+                previewTitle.textContent = place.title;
+                previewSubtitle.textContent = `${place.country} • ${place.size} ${platform} sources`;
+                
+                previewBubble.style.borderColor = config.borderColor;
+                previewBubble.classList.add('active');
+            }
+            
+            // Show preview for individual station
+            function showStationPreview(stationData) {
+                const previewBubble = document.getElementById('previewBubble');
+                const previewIcon = document.getElementById('previewIcon');
+                const previewTitle = document.getElementById('previewTitle');
+                const previewSubtitle = document.getElementById('previewSubtitle');
+                
+                previewIcon.textContent = '📻';
+                previewTitle.textContent = stationData.station.title;
+                previewSubtitle.textContent = `${stationData.title}, ${stationData.country}`;
+                
+                previewBubble.style.borderColor = platformConfig.radio.borderColor;
+                previewBubble.classList.add('active');
+            }
+
+            // Get demo data for Radio Garden places
+            function getRadioPlacesDemo() {
+                return [
+                    // Major cities with radio stations
+                    { id: 'london', geo: [-0.1278, 51.5074], title: 'London', country: 'United Kingdom', size: 45 },
+                    { id: 'newyork', geo: [-74.0060, 40.7128], title: 'New York', country: 'United States', size: 38 },
+                    { id: 'paris', geo: [2.3522, 48.8566], title: 'Paris', country: 'France', size: 32 },
+                    { id: 'tokyo', geo: [139.6503, 35.6762], title: 'Tokyo', country: 'Japan', size: 45 },
+                    { id: 'sydney', geo: [151.2093, -33.8688], title: 'Sydney', country: 'Australia', size: 24 },
+                    { id: 'berlin', geo: [13.4050, 52.5200], title: 'Berlin', country: 'Germany', size: 22 },
+                    { id: 'moscow', geo: [37.6176, 55.7558], title: 'Moscow', country: 'Russia', size: 26 },
+                    { id: 'losangeles', geo: [-118.2437, 34.0522], title: 'Los Angeles', country: 'United States', size: 35 },
+                    { id: 'madrid', geo: [-3.7038, 40.4168], title: 'Madrid', country: 'Spain', size: 20 },
+                    { id: 'rome', geo: [12.4964, 41.9028], title: 'Rome', country: 'Italy', size: 18 },
+                    { id: 'mumbai', geo: [72.8777, 19.0760], title: 'Mumbai', country: 'India', size: 30 },
+                    { id: 'beijing', geo: [116.4074, 39.9042], title: 'Beijing', country: 'China', size: 25 },
+                    { id: 'cairo', geo: [31.2357, 30.0444], title: 'Cairo', country: 'Egypt', size: 15 },
+                    { id: 'capetown', geo: [18.4241, -33.9249], title: 'Cape Town', country: 'South Africa', size: 12 },
+                    { id: 'toronto', geo: [-79.3832, 43.6532], title: 'Toronto', country: 'Canada', size: 25 },
+                    { id: 'amsterdam', geo: [4.9041, 52.3676], title: 'Amsterdam', country: 'Netherlands', size: 20 },
+                    { id: 'stockholm', geo: [18.0686, 59.3293], title: 'Stockholm', country: 'Sweden', size: 16 },
+                    { id: 'dubai', geo: [55.2708, 25.2048], title: 'Dubai', country: 'UAE', size: 18 },
+                    { id: 'saopaulo', geo: [-46.6333, -23.5505], title: 'São Paulo', country: 'Brazil', size: 28 },
+                    { id: 'bangkok', geo: [100.5018, 13.7563], title: 'Bangkok', country: 'Thailand', size: 22 }
+                ];
+            }
+            
+            // Fetch radio places and create individual station markers
+            async function fetchRadioPlaces() {
+                try {
+                    updateRadioStatus('loading', 'Loading radio stations...');
+                    
+                    // Get radio places
+                    radioPlaces = getRadioPlacesDemo();
+                    
+                    console.log(`✅ Loaded ${radioPlaces.length} radio cities`);
+                    updateRadioStatus('online', 'Connected');
+                    document.getElementById('citiesLoaded').textContent = radioPlaces.length;
+                    
+                    // Create individual station markers
+                    createIndividualStationMarkers();
+                    
+                    return radioPlaces;
+                } catch (error) {
+                    console.error('Failed to fetch radio places:', error);
+                    updateRadioStatus('offline', 'Using demo data');
+                    radioPlaces = getRadioPlacesDemo();
+                    createIndividualStationMarkers();
+                    return radioPlaces;
+                }
+            }
+
+            // Create individual station markers (like Radio Garden)
+            function createIndividualStationMarkers() {
+                radioDataSource = new Cesium.CustomDataSource('radio-stations');
+                mediaDataSources['radio'] = radioDataSource;
+                viewer.dataSources.add(radioDataSource);
+                
+                const config = platformConfig.radio;
+                let totalStations = 0;
+
+                radioPlaces.forEach(place => {
+                    const stations = getDemoStationsForPlace(place);
+                    const numStations = stations.length;
+                    totalStations += numStations;
+                    
+                    // Calculate spread pattern for stations
+                    const baseRadius = 0.05; // Base spread radius in degrees
+                    const radiusMultiplier = Math.min(numStations / 20, 2); // Scale with number of stations
+                    const spreadRadius = baseRadius * radiusMultiplier;
+                    
+                    // Create Fibonacci spiral pattern for natural distribution
+                    const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // Golden angle in radians
+                    
+                    stations.forEach((station, index) => {
+                        // Fibonacci spiral distribution
+                        const angle = index * goldenAngle;
+                        const radius = spreadRadius * Math.sqrt(index / numStations);
+                        
+                        // Add some randomness for more natural look
+                        const randomOffset = (Math.random() - 0.5) * 0.01;
+                        const latOffset = radius * Math.sin(angle) + randomOffset;
+                        const lonOffset = radius * Math.cos(angle) + randomOffset;
+                        
+                        const stationLon = place.geo[0] + lonOffset;
+                        const stationLat = place.geo[1] + latOffset;
+                        
+                        // Create individual station entity
+                        const entity = radioDataSource.entities.add({
+                            id: `radio_${place.id}_station_${index}`,
+                            position: Cesium.Cartesian3.fromDegrees(stationLon, stationLat),
+                            point: {
+                                pixelSize: 8,
+                                color: config.color,
+                                outlineColor: Cesium.Color.WHITE.withAlpha(0.8),
+                                outlineWidth: 1,
+                                scaleByDistance: new Cesium.NearFarScalar(1.5e2, 1.2, 1.5e7, 0.3),
+                                translucencyByDistance: new Cesium.NearFarScalar(1.5e2, 1.0, 1.5e7, 0.2),
+                                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+                            },
+                            properties: {
+                                ...place,
+                                station: station,
+                                stationIndex: index,
+                                isStation: true,
+                                platform: 'radio'
+                            }
+                        });
+                        
+                        // Add subtle pulsing effect on hover
+                        entity.point.pixelSize = new Cesium.CallbackProperty(function() {
+                            if (currentHoveredPlace && 
+                                currentHoveredPlace.station === station) {
+                                return 12; // Larger when hovered
+                            }
+                            return 8;
+                        }, false);
+                    });
+                    
+                    // Add city label (only visible when zoomed out)
+                    radioDataSource.entities.add({
+                        id: `radio_${place.id}_label`,
+                        position: Cesium.Cartesian3.fromDegrees(place.geo[0], place.geo[1]),
+                        label: {
+                            text: place.title,
+                            font: '12px Arial',
+                            fillColor: Cesium.Color.WHITE.withAlpha(0.8),
+                            outlineColor: Cesium.Color.BLACK,
+                            outlineWidth: 2,
+                            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                            pixelOffset: new Cesium.Cartesian2(0, -20),
+                            scaleByDistance: new Cesium.NearFarScalar(5e4, 1.0, 5e5, 0),
+                            disableDepthTestDistance: Number.POSITIVE_INFINITY
+                        }
+                    });
+                });
+
+                document.getElementById('stationsLoaded').textContent = totalStations;
+                console.log(`✅ Created ${totalStations} individual radio station dots`);
+            }
+
+            // Get demo data for other platforms
+            function getMediaPlacesDemo(platform) {
+                const basePlaces = [
+                    { id: 'london', geo: [-0.1278, 51.5074], title: 'London', country: 'United Kingdom' },
+                    { id: 'newyork', geo: [-74.0060, 40.7128], title: 'New York', country: 'United States' },
+                    { id: 'paris', geo: [2.3522, 48.8566], title: 'Paris', country: 'France' },
+                    { id: 'tokyo', geo: [139.6503, 35.6762], title: 'Tokyo', country: 'Japan' },
+                    { id: 'sydney', geo: [151.2093, -33.8688], title: 'Sydney', country: 'Australia' },
+                    { id: 'berlin', geo: [13.4050, 52.5200], title: 'Berlin', country: 'Germany' },
+                    { id: 'moscow', geo: [37.6176, 55.7558], title: 'Moscow', country: 'Russia' },
+                    { id: 'losangeles', geo: [-118.2437, 34.0522], title: 'Los Angeles', country: 'United States' },
+                    { id: 'madrid', geo: [-3.7038, 40.4168], title: 'Madrid', country: 'Spain' },
+                    { id: 'rome', geo: [12.4964, 41.9028], title: 'Rome', country: 'Italy' },
+                    { id: 'mumbai', geo: [72.8777, 19.0760], title: 'Mumbai', country: 'India' },
+                    { id: 'beijing', geo: [116.4074, 39.9042], title: 'Beijing', country: 'China' },
+                    { id: 'cairo', geo: [31.2357, 30.0444], title: 'Cairo', country: 'Egypt' },
+                    { id: 'capetown', geo: [18.4241, -33.9249], title: 'Cape Town', country: 'South Africa' },
+                    { id: 'toronto', geo: [-79.3832, 43.6532], title: 'Toronto', country: 'Canada' },
+                    { id: 'amsterdam', geo: [4.9041, 52.3676], title: 'Amsterdam', country: 'Netherlands' },
+                    { id: 'stockholm', geo: [18.0686, 59.3293], title: 'Stockholm', country: 'Sweden' },
+                    { id: 'dubai', geo: [55.2708, 25.2048], title: 'Dubai', country: 'UAE' },
+                    { id: 'saopaulo', geo: [-46.6333, -23.5505], title: 'São Paulo', country: 'Brazil' },
+                    { id: 'bangkok', geo: [100.5018, 13.7563], title: 'Bangkok', country: 'Thailand' }
+                ];
+
+                // Vary the size based on platform
+                const sizeMultipliers = {
+                    tv: 25,
+                    youtube: 35,
+                    instagram: 40,
+                    telegram: 20,
+                    snapchat: 30,
+                    vk: 15,
+                    facebook: 50,
+                    tiktok: 38
+                };
+
+                return basePlaces.map(place => ({
+                    ...place,
+                    size: Math.floor(Math.random() * 20 + (sizeMultipliers[platform] || 20))
+                }));
+            }
+
+            // Fetch media places for a platform (non-radio)
+            async function fetchMediaPlaces(platform) {
+                if (platform === 'radio') return; // Radio is handled separately
+                
+                try {
+                    updateRadioStatus('loading', `Loading ${platform}...`);
+                    
+                    // For now, use demo data for all platforms
+                    mediaPlaces[platform] = getMediaPlacesDemo(platform);
+                    
+                    console.log(`✅ Loaded ${mediaPlaces[platform].length} ${platform} places`);
+                    
+                    // Create markers for this platform
+                    createMediaMarkers(platform);
+                    
+                    return mediaPlaces[platform];
+                } catch (error) {
+                    console.error(`Failed to fetch ${platform} places:`, error);
+                    return [];
+                }
+            }
+
+            // Create media markers on the globe for a specific platform
+            function createMediaMarkers(platform) {
+                const dataSource = new Cesium.GeoJsonDataSource(`${platform}-places`);
+                mediaDataSources[platform] = dataSource;
+                viewer.dataSources.add(dataSource);
+                
+                // Only show if platform is active
+                dataSource.show = activePlatforms.has(platform);
+
+                const places = mediaPlaces[platform];
+                const config = platformConfig[platform];
+
+                places.forEach(place => {
+                    // Create entity for the media place
+                    const entity = dataSource.entities.add({
+                        id: `${platform}_${place.id}`,
+                        position: Cesium.Cartesian3.fromDegrees(place.geo[0], place.geo[1]),
+                        point: {
+                            pixelSize: Math.min(place.size / 2 + 8, 20),
+                            color: config.color,
+                            outlineColor: Cesium.Color.WHITE,
+                            outlineWidth: 2,
+                            scaleByDistance: new Cesium.NearFarScalar(1.5e2, 2.0, 1.5e7, 0.8),
+                            translucencyByDistance: new Cesium.NearFarScalar(1.5e2, 1.0, 1.5e7, 0.5)
+                        },
+                        label: {
+                            text: config.icon,
+                            font: '18px Arial',
+                            pixelOffset: new Cesium.Cartesian2(0, -45),
+                            fillColor: Cesium.Color.WHITE,
+                            outlineColor: Cesium.Color.BLACK,
+                            outlineWidth: 2,
+                            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                            scaleByDistance: new Cesium.NearFarScalar(1.5e2, 1.2, 1.5e7, 0.5),
+                            show: false // Only show on hover
+                        },
+                        properties: { ...place, platform }
+                    });
+
+                    // Add pulsing circle
+                    const circleSize = Math.min(place.size * 2000 + 20000, 100000);
+                    dataSource.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(place.geo[0], place.geo[1]),
+                        ellipse: {
+                            semiMinorAxis: circleSize,
+                            semiMajorAxis: circleSize,
+                            material: config.color.withAlpha(0.2),
+                            height: 0,
+                            outline: true,
+                            outlineColor: config.color.withAlpha(0.6),
+                            outlineWidth: 1
+                        }
+                    });
+                });
+            }
+
+            // Update status indicator
+            function updateRadioStatus(status, text) {
+                const statusDot = document.getElementById('radioStatus');
+                const statusText = document.getElementById('radioStatusText');
+                
+                statusDot.className = `status-dot ${status}`;
+                statusText.textContent = text;
+            }
+
+            // Handle entity selection (clicking on dots)
+            viewer.selectedEntityChanged.addEventListener(() => {
+                const selectedEntity = viewer.selectedEntity;
+                if (selectedEntity && selectedEntity.properties) {
+                    const props = selectedEntity.properties.getValue();
+                    if (props && props.id) {
+                        console.log(`Selected ${props.platform} source in ${props.title}`);
+                        
+                        if (props.platform === 'radio' && props.isStation) {
+                            // Individual station clicked - show station list and play
+                            radioOverlayOpenedByClick = true;
+                            showRadioStations(props, true);
+                            
+                            // Auto-play the clicked station after list loads
+                            setTimeout(() => {
+                                const stationElements = document.querySelectorAll('.radio-station');
+                                if (stationElements[props.stationIndex]) {
+                                    stationElements[props.stationIndex].click();
+                                }
+                            }, 300);
+                        } else if (props.platform === 'radio') {
+                            // Show radio stations list (opened by click)
+                            radioOverlayOpenedByClick = true;
+                            showRadioStations(props, true);
+                        } else {
+                            // For other platforms, just show preview for now
+                            console.log(`Would open ${props.platform} viewer for ${props.title}`);
+                        }
+                    }
+                }
+            });
+
+            // Show radio stations for a place
+            async function showRadioStations(place, openedByClick = true) {
+                // Always treat as opened by click to prevent hover issues
+                radioOverlayOpenedByClick = true;
+                
+                const radioOverlay = document.getElementById('radioOverlay');
+                const locationName = document.getElementById('locationName');
+                const stationCount = document.getElementById('stationCount');
+                const radioStationsContainer = document.getElementById('radioStations');
+
+                locationName.textContent = place.title;
+                stationCount.textContent = `Loading ${place.size} stations...`;
+                radioStationsContainer.innerHTML = '';
+
+                radioOverlay.classList.add('active');
+
+                try {
+                    // Get demo stations for the place
+                    const stations = getDemoStationsForPlace(place);
+                    
+                    stationCount.textContent = `${stations.length} radio stations`;
+                    
+                    stations.forEach((station, index) => {
+                        const stationElement = document.createElement('div');
+                        stationElement.className = 'radio-station';
+                        stationElement.setAttribute('data-station-index', index);
+                        
+                        stationElement.innerHTML = `
+                            <div class="radio-icon">📻</div>
+                            <div class="radio-info">
+                                <div class="radio-name">${station.title}</div>
+                                <div class="radio-location">${place.title}, ${place.country}</div>
+                            </div>
+                            <div class="play-indicator">🎵</div>
+                        `;
+                        
+                        // Add click event listener
+                        stationElement.addEventListener('click', function() {
+                            playRadioStation(station, place, this);
+                        });
+                        
+                        radioStationsContainer.appendChild(stationElement);
+                    });
+                    
+                } catch (error) {
+                    stationCount.textContent = 'Failed to load stations';
+                    console.error('Error loading stations:', error);
+                }
+            }
+
+            // Get demo stations for a place
+            function getDemoStationsForPlace(place) {
+                const stationTemplates = [
+                    { name: 'FM', frequency: '98.5', genre: 'Pop' },
+                    { name: 'Radio', frequency: '101.1', genre: 'Rock' },
+                    { name: 'News', frequency: '88.9', genre: 'News' },
+                    { name: 'Jazz', frequency: '95.7', genre: 'Jazz' },
+                    { name: 'Classical', frequency: '103.3', genre: 'Classical' },
+                    { name: 'Talk', frequency: '740', genre: 'Talk' },
+                    { name: 'Music', frequency: '107.9', genre: 'Mixed' }
+                ];
+
+                const stations = [];
+                const numStations = place.size || 5;
+                
+                // Generate more diverse station names for larger lists
+                const expandedTemplates = [];
+                for (let i = 0; i < Math.ceil(numStations / stationTemplates.length); i++) {
+                    stationTemplates.forEach(template => {
+                        expandedTemplates.push({
+                            ...template,
+                            name: i > 0 ? `${template.name} ${i + 1}` : template.name,
+                            frequency: `${parseFloat(template.frequency) + (i * 0.2)}`
+                        });
+                    });
+                }
+                
+                for (let i = 0; i < numStations; i++) {
+                    const template = expandedTemplates[i % expandedTemplates.length];
+                    stations.push({
+                        title: `${place.title} ${template.name} ${template.frequency}`,
+                        href: `/listen/${place.title.toLowerCase().replace(/\s+/g, '-')}-${template.name.toLowerCase()}/demo${i}`,
+                        genre: template.genre,
+                        frequency: template.frequency
+                    });
+                }
+                
+                return stations;
+            }
+
+            // Play a radio station
+            function playRadioStation(station, place, element) {
+                console.log('Playing station:', station.title);
+                
+                try {
+                    // Stop current station if playing
+                    if (currentPlayingStation && currentPlayingStation.element) {
+                        currentPlayingStation.element.classList.remove('playing');
+                    }
+
+                    // Enable audio playback with real streams
+                    const playAudio = true;
+                    
+                    if (playAudio) {
+                        // Demo streams that work better with CORS
+                        const demoStreamUrls = [
+                            'https://stream.zeno.fm/f3wvbbqmdg8uv', // Pop music stream
+                            'https://live.wostreaming.net/direct/ppm-jazz24mp3-ibc1', // Jazz stream
+                            'https://ice55.securenetsystems.net/DASH89', // Classic hits
+                            'https://kathy.torontocast.com:1825/stream', // Easy listening
+                            'https://icecast.radiofrance.fr/franceculture-lofi.mp3' // France Culture
+                        ];
+                        
+                        const streamUrl = demoStreamUrls[Math.floor(Math.random() * demoStreamUrls.length)];
+                        
+                        // Stop previous audio
+                        if (audioPlayer.src) {
+                            audioPlayer.pause();
+                            audioPlayer.src = '';
+                        }
+                        
+                        // Set up audio player
+                        audioPlayer.src = streamUrl;
+                        audioPlayer.load();
+                        
+                        // Attempt to play
+                        audioPlayer.play().then(() => {
+                            console.log(`🎵 Playing stream: ${streamUrl}`);
+                        }).catch(error => {
+                            console.log('Audio playback failed:', error);
+                            // Continue with UI update even if audio fails
+                        });
+                    }
+                    
+                    // Update UI regardless of audio playback
+                    currentPlayingStation = { station, place, element };
+                    
+                    // Remove playing class from all stations
+                    document.querySelectorAll('.radio-station').forEach(el => {
+                        el.classList.remove('playing');
+                    });
+                    
+                    // Add playing class to current station
+                    element.classList.add('playing');
+                    
+                    // Update audio controls
+                    updateAudioControls(station, place);
+                    
+                    // Provide user feedback
+                    console.log(`Now playing: ${station.title} from ${place.title}`);
+                    
+                } catch (error) {
+                    console.error('Error in playRadioStation:', error);
+                    // Still update UI even if there's an error
+                    element.classList.add('playing');
+                    updateAudioControls(station, place);
+                }
+            }
+
+            // Stop radio playback
+            window.stopRadio = function() {
+                if (audioPlayer) {
+                    audioPlayer.pause();
+                    audioPlayer.src = '';
+                }
+                
+                if (currentPlayingStation && currentPlayingStation.element) {
+                    currentPlayingStation.element.classList.remove('playing');
+                }
+                
+                currentPlayingStation = null;
+                
+                const audioControls = document.getElementById('audioControls');
+                audioControls.classList.remove('active');
+                
+                // Reset play button
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                playPauseBtn.textContent = '▶️';
+            };
+
+            // Close radio overlay function
+            window.closeRadioOverlay = function() {
+                const radioOverlay = document.getElementById('radioOverlay');
+                radioOverlay.classList.remove('active');
+                radioOverlayOpenedByClick = false;
+            };
+            
+            // Close radio overlay when clicking outside
+            document.addEventListener('click', function(event) {
+                const radioOverlay = document.getElementById('radioOverlay');
+                const isClickInside = radioOverlay.contains(event.target) || 
+                                    event.target.closest('.cesium-viewer');
+                
+                if (!isClickInside && !event.target.closest('.platform-btn')) {
+                    radioOverlay.classList.remove('active');
+                    radioOverlayOpenedByClick = false;
+                }
+            });
+
+            // Border toggle functionality
+            document.getElementById('countryBordersBtn').addEventListener('click', function() {
+                this.classList.toggle('active');
+                if (countryBordersDataSource) {
+                    countryBordersDataSource.show = this.classList.contains('active');
+                }
+            });
+
+            // Initialize everything
+            setTimeout(async () => {
+                await loadCountryBorders();
+                
+                // Load radio stations
+                await fetchRadioPlaces();
+                
+                // Load other platform data (city-based)
+                for (const platform of Object.keys(platformConfig)) {
+                    await fetchMediaPlaces(platform);
+                }
+                
+                // Update stats
+                let totalCities = radioPlaces.length;
+                
+                Object.values(mediaPlaces).forEach(places => {
+                    totalCities += places.length;
+                });
+                
+                document.getElementById('citiesLoaded').textContent = totalCities;
+                
+                updateRadioStatus('online', 'All platforms loaded');
+            }, 1000);
+
+            // Audio control functions
+            function updateAudioControls(station, place) {
+                const audioControls = document.getElementById('audioControls');
+                const stationName = document.getElementById('stationName');
+                const stationLocation = document.getElementById('stationLocation');
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                
+                stationName.textContent = station.title;
+                stationLocation.textContent = `${place.title}, ${place.country}`;
+                audioControls.classList.add('active');
+                
+                // Update play/pause button
+                if (audioPlayer && !audioPlayer.paused) {
+                    playPauseBtn.textContent = '⏸️';
+                } else {
+                    playPauseBtn.textContent = '▶️';
+                }
+            }
+            
+            window.togglePlayPause = function() {
+                if (!audioPlayer || !currentPlayingStation) return;
+                
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                
+                if (audioPlayer.paused) {
+                    audioPlayer.play().then(() => {
+                        playPauseBtn.textContent = '⏸️';
+                    }).catch(error => {
+                        console.log('Play failed:', error);
+                    });
+                } else {
+                    audioPlayer.pause();
+                    playPauseBtn.textContent = '▶️';
+                }
+            };
+            
+            window.setVolume = function(value) {
+                if (audioPlayer) {
+                    audioPlayer.volume = value / 100;
+                }
+            };
+            
+            window.previousStation = function() {
+                // Find previous station in the list
+                const stations = document.querySelectorAll('.radio-station');
+                const currentIndex = Array.from(stations).findIndex(s => s.classList.contains('playing'));
+                
+                if (currentIndex > 0) {
+                    stations[currentIndex - 1].click();
+                } else if (stations.length > 0) {
+                    stations[stations.length - 1].click();
+                }
+            };
+            
+            window.nextStation = function() {
+                // Find next station in the list
+                const stations = document.querySelectorAll('.radio-station');
+                const currentIndex = Array.from(stations).findIndex(s => s.classList.contains('playing'));
+                
+                if (currentIndex < stations.length - 1 && currentIndex >= 0) {
+                    stations[currentIndex + 1].click();
+                } else if (stations.length > 0) {
+                    stations[0].click();
+                }
+            };
+            
+            // Set initial volume
+            if (audioPlayer) {
+                audioPlayer.volume = 0.7;
+            }
+            
+            // Fade out loading screen
+            setTimeout(() => {
+                const loadingScreen = document.getElementById('loadingScreen');
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 1500);
+            }, 4000);
+
+        } catch (error) {
+            console.error('Failed to initialize Cesium viewer:', error);
+            updateRadioStatus('offline', 'Failed to initialize');
+        }
+    </script>
+</body>
+</html>
